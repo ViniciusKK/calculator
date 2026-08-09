@@ -1,0 +1,12 @@
+# Keep the build context small and never ship host-built artefacts: both
+# stages build from source inside the image.
+.git
+.gitignore
+.DS_Store
+README.md
+Dockerfile
+.dockerignore
+
+frontend/node_modules
+frontend/dist
+backend/bin

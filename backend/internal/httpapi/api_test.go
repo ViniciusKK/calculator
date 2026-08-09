@@ -4,15 +4,22 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
 func do(t *testing.T, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
+	return doOn(t, NewRouter(""), method, path, body)
+}
+
+func doOn(t *testing.T, h http.Handler, method, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	rec := httptest.NewRecorder()
-	NewRouter().ServeHTTP(rec, req)
+	h.ServeHTTP(rec, req)
 	return rec
 }
 
@@ -226,4 +233,101 @@ func TestPowerNaN(t *testing.T) {
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("status = %d (%s), want %d", rec.Code, rec.Body.String(), http.StatusUnprocessableEntity)
 	}
+}
+
+// staticRouter builds a router backed by a throwaway directory that looks like
+// a Vite build output.
+func staticRouter(t *testing.T) http.Handler {
+	t.Helper()
+	dir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("<!doctype html>app"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "assets"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "assets", "index-abc123.js"), []byte("console.log(1)"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A file the server must never hand out, one directory above the root.
+	if err := os.WriteFile(filepath.Join(dir, "..", "secret.txt"), []byte("nope"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	return NewRouter(dir)
+}
+
+func TestStaticDisabledByDefault(t *testing.T) {
+	rec := do(t, http.MethodGet, "/", "")
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want %d when no static dir is configured", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestStaticServesTheApp(t *testing.T) {
+	router := staticRouter(t)
+
+	t.Run("serves index.html at the root", func(t *testing.T) {
+		rec := doOn(t, router, http.MethodGet, "/", "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+		}
+		if !strings.Contains(rec.Body.String(), "app") {
+			t.Errorf("body = %q, want the index page", rec.Body.String())
+		}
+	})
+
+	t.Run("serves fingerprinted assets with a long cache", func(t *testing.T) {
+		rec := doOn(t, router, http.MethodGet, "/assets/index-abc123.js", "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+		}
+		if cc := rec.Header().Get("Cache-Control"); !strings.Contains(cc, "immutable") {
+			t.Errorf("Cache-Control = %q, want an immutable directive", cc)
+		}
+	})
+
+	t.Run("falls back to index.html for unknown paths", func(t *testing.T) {
+		rec := doOn(t, router, http.MethodGet, "/some/client/route", "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+		}
+		if cc := rec.Header().Get("Cache-Control"); cc != "no-cache" {
+			t.Errorf("Cache-Control = %q, want no-cache on the shell", cc)
+		}
+	})
+
+	t.Run("keeps the API working", func(t *testing.T) {
+		rec := doOn(t, router, http.MethodPost, "/api/add", `{"a":2,"b":3}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d (%s), want %d", rec.Code, rec.Body.String(), http.StatusOK)
+		}
+		var body calcResponse
+		decode(t, rec, &body)
+		if body.Result != 5 {
+			t.Errorf("result = %v, want 5", body.Result)
+		}
+	})
+
+	t.Run("still 404s unknown API paths as JSON", func(t *testing.T) {
+		rec := doOn(t, router, http.MethodGet, "/api/nope", "")
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+		}
+		var body errorResponse
+		decode(t, rec, &body)
+		if body.Error == "" {
+			t.Error("expected a JSON error body, not the app shell")
+		}
+	})
+
+	t.Run("refuses to escape the static root", func(t *testing.T) {
+		for _, target := range []string{"/../secret.txt", "/assets/../../secret.txt"} {
+			rec := doOn(t, router, http.MethodGet, target, "")
+			if strings.Contains(rec.Body.String(), "nope") {
+				t.Errorf("%s leaked a file outside the static root", target)
+			}
+		}
+	})
 }

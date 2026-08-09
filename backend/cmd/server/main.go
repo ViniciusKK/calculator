@@ -15,9 +15,19 @@ func main() {
 		port = "8080"
 	}
 
+	// Set in the Docker image to serve the built frontend alongside the API.
+	// Left unset for local development, where Vite serves the frontend.
+	staticDir := os.Getenv("STATIC_DIR")
+	if staticDir != "" {
+		if _, err := os.Stat(staticDir); err != nil {
+			log.Fatalf("STATIC_DIR %q is not readable: %v", staticDir, err)
+		}
+		log.Printf("serving frontend from %s", staticDir)
+	}
+
 	srv := &http.Server{
 		Addr:              ":" + port,
-		Handler:           httpapi.NewRouter(),
+		Handler:           httpapi.NewRouter(staticDir),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,

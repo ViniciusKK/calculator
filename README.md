@@ -5,6 +5,29 @@ Two-part project:
 - `frontend/` — React + TypeScript app scaffolded with Vite.
 - `backend/` — REST API written in Go (standard library only).
 
+## Docker
+
+One image runs both halves: the Go binary serves the built frontend from the
+same origin, so there is a single process and a single port.
+
+```bash
+docker build -t calculator .
+docker run --rm -p 8080:8080 calculator   # http://localhost:8080
+```
+
+The build is three stages — Node builds the frontend, Go builds a static
+binary, and the runtime layer is `distroless/static` running as `nonroot`.
+Nothing from the host is copied in; both halves build from source inside the
+image, and `npm run build` typechecks first, so a type error fails the build.
+
+| Variable     | Default    | Does                                                    |
+| ------------ | ---------- | ------------------------------------------------------- |
+| `PORT`       | `8080`     | port to listen on                                        |
+| `STATIC_DIR` | `/app/web` | directory to serve the frontend from; unset = API only   |
+
+The runtime image has no shell, so there is no `HEALTHCHECK` instruction —
+point your orchestrator's HTTP probe at `/health`.
+
 ## Backend
 
 Requires Go 1.22+.
@@ -14,6 +37,10 @@ cd backend
 go run ./cmd/server   # listens on :8080, override with PORT
 go test ./...
 ```
+
+Locally the server is API-only: `STATIC_DIR` is unset, so Vite serves the
+frontend. Setting it makes the same binary serve a built frontend too, which is
+what the Docker image does.
 
 ### Endpoints
 

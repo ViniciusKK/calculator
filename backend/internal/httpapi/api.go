@@ -7,6 +7,10 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"os"
+	"path"
+	"path/filepath"
+	"strings"
 
 	"github.com/ViniciusKumagai/calculator/backend/internal/calc"
 )
@@ -37,8 +41,10 @@ type errorResponse struct {
 	Error string `json:"error"`
 }
 
-// NewRouter returns the HTTP handler for the whole API.
-func NewRouter() http.Handler {
+// NewRouter returns the HTTP handler for the whole API. Pass a non-empty
+// staticDir to also serve a built frontend from the same origin, which is how
+// the Docker image runs; pass "" for the API alone.
+func NewRouter(staticDir string) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /health", handleHealth)
@@ -49,7 +55,40 @@ func NewRouter() http.Handler {
 	mux.HandleFunc("POST /api/power", handleOp(calc.Power))
 	mux.HandleFunc("POST /api/sqrt", handleSqrt)
 
+	if staticDir != "" {
+		mux.Handle("GET /", handleStatic(staticDir))
+	}
+
 	return withCORS(mux)
+}
+
+// handleStatic serves the built frontend, falling back to index.html so client
+// routing keeps working. Unmatched /api/ paths stay JSON 404s rather than
+// silently returning the app shell.
+func handleStatic(dir string) http.HandlerFunc {
+	files := http.FileServer(http.Dir(dir))
+	index := filepath.Join(dir, "index.html")
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			writeError(w, http.StatusNotFound, "unknown endpoint")
+			return
+		}
+
+		// path.Clean resolves any "..", so the join cannot escape dir.
+		requested := filepath.Join(dir, filepath.FromSlash(path.Clean(r.URL.Path)))
+		if info, err := os.Stat(requested); err == nil && !info.IsDir() {
+			// Vite fingerprints asset filenames, so they are safe to pin.
+			if strings.HasPrefix(r.URL.Path, "/assets/") {
+				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			}
+			files.ServeHTTP(w, r)
+			return
+		}
+
+		w.Header().Set("Cache-Control", "no-cache")
+		http.ServeFile(w, r, index)
+	}
 }
 
 func handleHealth(w http.ResponseWriter, r *http.Request) {
