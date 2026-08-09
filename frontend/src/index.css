@@ -1,12 +1,17 @@
 :root {
-  --bg: #14131a;
-  --panel: #1e1c26;
-  --screen: #14131a;
-  --key: #2f2c3a;
-  --accent: #aa3bff;
-  --text: #f4f3f7;
-  --muted: #8b8598;
-  --danger: #ff6b6b;
+  /* Monochrome dark palette. The accent is a soft gray, so anything sitting on
+     it takes dark text — #e0e0e0 on #888888 is only 2.7:1, #121212 is 5.3:1. */
+  --bg: #121212;
+  --panel: #1a1a1a;
+  --surface: #1e1e1e;
+  --key: #232323;
+  --key-strong: #2c2c2c;
+  --border: #444444;
+  --text: #e0e0e0;
+  --muted: #b0b0b0;
+  --accent: #888888;
+  --on-accent: #121212;
+  --danger: #cf6679;
 
   font-family: system-ui, "Segoe UI", Roboto, sans-serif;
   color-scheme: dark;
@@ -28,10 +33,37 @@ body {
   background: var(--bg);
 }
 
+/* dvh tracks the mobile browser chrome as it collapses; vh above is the
+   fallback for browsers without it. */
+@supports (min-height: 100dvh) {
+  body {
+    min-height: 100dvh;
+  }
+}
+
 /* #root is the flex item, so it must carry the width; otherwise it collapses
    to min-content and the calculator's own 100% resolves against that. */
 #root {
   display: flex;
   justify-content: center;
   width: 100%;
+}
+
+/* Phones: hand the whole viewport to the app instead of centring a card. The
+   second condition catches landscape phones, which are wide but very short. */
+@media (max-width: 540px), (max-height: 540px) and (orientation: landscape) {
+  body {
+    align-items: stretch;
+    padding: 0;
+  }
+
+  #root {
+    height: 100vh;
+  }
+
+  @supports (height: 100dvh) {
+    #root {
+      height: 100dvh;
+    }
+  }
 }

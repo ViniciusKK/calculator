@@ -120,6 +120,29 @@ Every arithmetic step is a call to the Go API — the frontend only decides the
 order the steps run in (`src/expression.ts`). Evaluating `1+2+3×4` makes three
 requests: `multiply(3,4)`, then `add(1,2)`, then `add(3,12)`.
 
+### Layout and palette
+
+Monochrome dark, defined as custom properties in `src/index.css`:
+
+| Token                | Value     | Used for                        |
+| -------------------- | --------- | ------------------------------- |
+| `--bg`               | `#121212` | page background                 |
+| `--panel` `--surface` | `#1a1a1a` `#1e1e1e` | card and display  |
+| `--key` `--key-strong` | `#232323` `#2c2c2c` | digit and function keys |
+| `--border`           | `#444444` | borders and dividers            |
+| `--text` `--muted`   | `#e0e0e0` `#b0b0b0` | primary and secondary text |
+| `--accent`           | `#888888` | operator keys                   |
+| `--danger`           | `#cf6679` | error text                      |
+
+Keys on the accent take `--on-accent` (`#121212`), not `--text`: light gray on
+`#888888` is 2.7:1, dark on the same gray is 5.3:1.
+
+Above 540px the app is a 400px card centred on the page. At or below that — and
+on landscape phones, which are wide but short — it fills the viewport instead:
+`100dvh`, safe-area insets for the notch and home indicator, and no rounding.
+The display absorbs the spare height so the keypad can size its rows from the
+column width (`aspect-ratio`), keeping keys near-square and never below ~55px.
+
 ### Keyboard
 
 | Key                  | Does              |
