@@ -2,14 +2,15 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
-import { calculate } from './api'
+import { calculate, calculateUnary } from './api'
 
-vi.mock('./api', () => ({ calculate: vi.fn() }))
+vi.mock('./api', () => ({ calculate: vi.fn(), calculateUnary: vi.fn() }))
 
 const backend = {
   add: (a, b) => a + b,
   subtract: (a, b) => a - b,
   multiply: (a, b) => a * b,
+  power: (a, b) => a ** b,
   divide: (a, b) => {
     if (b === 0) throw new Error('division by zero')
     return a / b
@@ -22,7 +23,12 @@ const expressionLine = () =>
 
 beforeEach(() => {
   calculate.mockReset()
+  calculateUnary.mockReset()
   calculate.mockImplementation(async (op, a, b) => backend[op](a, b))
+  calculateUnary.mockImplementation(async (op, a) => {
+    if (a < 0) throw new Error('square root of a negative number')
+    return Math.sqrt(a)
+  })
 })
 
 const setup = () => {
@@ -155,9 +161,89 @@ describe('keypad', () => {
       ...'0123456789',
       '+', '×', '÷', '=', 'C',
       'backspace', 'decimal comma', 'minus',
+      'square root', 'exponent', 'percent',
+      'open parenthesis', 'close parenthesis',
     ]
     for (const name of labels) {
       expect(screen.getAllByRole('button', { name }).length).toBeGreaterThan(0)
     }
+  })
+})
+
+describe('exponentiation, roots, percent and parentheses', () => {
+  it('raises to a power from the keyboard', async () => {
+    const user = setup()
+    await user.keyboard('2^10{Enter}')
+    await waitFor(() => expect(display()).toBe('1024'))
+  })
+
+  it('binds ^ tighter than × and lets parentheses override it', async () => {
+    const user = setup()
+    await user.keyboard('2*3^2{Enter}')
+    await waitFor(() => expect(display()).toBe('18'))
+
+    await user.keyboard('{Escape}(2*3)^2{Enter}')
+    await waitFor(() => expect(display()).toBe('36'))
+  })
+
+  it('takes a square root from the keypad', async () => {
+    const user = setup()
+    await user.click(screen.getByRole('button', { name: 'square root' }))
+    await user.keyboard('9{Enter}')
+    await waitFor(() => expect(display()).toBe('3'))
+  })
+
+  it('roots a parenthesised group', async () => {
+    const user = setup()
+    await user.click(screen.getByRole('button', { name: 'square root' }))
+    await user.keyboard('(9+16){Enter}')
+    await waitFor(() => expect(display()).toBe('5'))
+  })
+
+  it('reports a negative square root', async () => {
+    const user = setup()
+    await user.click(screen.getByRole('button', { name: 'square root' }))
+    await user.keyboard('(0-4){Enter}')
+    await waitFor(() => expect(display()).toBe('square root of a negative number'))
+  })
+
+  it('treats percent as "of" after + and −', async () => {
+    const user = setup()
+    await user.keyboard('50+10%{Enter}')
+    await waitFor(() => expect(display()).toBe('55'))
+  })
+
+  it('treats percent as a fraction after ×', async () => {
+    const user = setup()
+    await user.keyboard('200*15%{Enter}')
+    await waitFor(() => expect(display()).toBe('30'))
+  })
+
+  it('evaluates nested parentheses', async () => {
+    const user = setup()
+    await user.keyboard('2*(3+(4-1)){Enter}')
+    await waitFor(() => expect(display()).toBe('12'))
+  })
+
+  it('reports an unclosed parenthesis instead of guessing', async () => {
+    const user = setup()
+    await user.keyboard('(1+2{Enter}')
+    await waitFor(() => expect(display()).toBe('missing closing parenthesis'))
+  })
+
+  it('inserts × when a group follows a value', async () => {
+    const user = setup()
+    await user.keyboard('2(3+4)')
+    expect(display()).toBe('2×(3+4)')
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(display()).toBe('14'))
+  })
+
+  it('never lets a stray ) into the expression', async () => {
+    const user = setup()
+    await user.keyboard('))))')
+    expect(display()).toBe('0')
+    await user.keyboard('1+2))))')
+    expect(display()).toBe('1+2')
   })
 })

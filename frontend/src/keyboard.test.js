@@ -18,6 +18,14 @@ describe('keyToAction', () => {
     expect(keyToAction('-')).toEqual({ type: 'operator', value: '−' })
     expect(keyToAction('*')).toEqual({ type: 'operator', value: '×' })
     expect(keyToAction('/')).toEqual({ type: 'operator', value: '÷' })
+    expect(keyToAction('^')).toEqual({ type: 'operator', value: '^' })
+  })
+
+  it('maps parentheses, percent and the root sign', () => {
+    expect(keyToAction('(')).toEqual({ type: 'openParen' })
+    expect(keyToAction(')')).toEqual({ type: 'closeParen' })
+    expect(keyToAction('%')).toEqual({ type: 'percent' })
+    expect(keyToAction('√')).toEqual({ type: 'sqrt' })
   })
 
   it('maps the control keys', () => {
@@ -38,7 +46,7 @@ describe('keyToAction', () => {
 
   it('ignores punctuation, whitespace and other keys', () => {
     const ignored = [
-      ' ', ';', ':', '!', '?', '@', '#', '$', '%', '^', '&', '(', ')',
+      ' ', ';', ':', '!', '?', '@', '#', '$', '&',
       '[', ']', '{', '}', '<', '>', '|', '\\', '"', "'", '`', '~', '_',
       'Tab', 'Shift', 'ArrowLeft', 'ArrowUp', 'F5', 'CapsLock', 'Home',
       'é', 'ç', 'ã', '½', '€',

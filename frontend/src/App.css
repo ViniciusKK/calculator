@@ -1,5 +1,5 @@
 .calculator {
-  width: min(340px, 100%);
+  width: min(400px, 100%);
   padding: 16px;
   border-radius: 20px;
   background: var(--panel);
@@ -33,6 +33,10 @@
   font-size: 1.5rem;
 }
 
+.screen .value.longer {
+  font-size: 1.15rem;
+}
+
 .screen .value.error {
   font-size: 1.1rem;
   color: var(--danger);
@@ -40,14 +44,14 @@
 
 .keypad {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 7px;
 }
 
 .keypad button {
-  padding: 18px 0;
+  padding: 15px 0;
   font: inherit;
-  font-size: 1.25rem;
+  font-size: 1.15rem;
   color: var(--text);
   cursor: pointer;
   background: var(--key);

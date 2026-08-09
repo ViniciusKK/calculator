@@ -51,6 +51,7 @@ function App() {
 
   const digit = (value) => () => perform({ type: 'digit', value })
   const operator = (value) => () => perform({ type: 'operator', value })
+  const send = (type) => () => perform({ type })
 
   const shown = displayValue(state)
 
@@ -64,7 +65,8 @@ function App() {
           className={[
             'value',
             state.error && 'error',
-            !state.error && shown.length > 11 && 'long',
+            !state.error && shown.length > 20 && 'longer',
+            !state.error && shown.length > 12 && shown.length <= 20 && 'long',
           ]
             .filter(Boolean)
             .join(' ')}
@@ -74,20 +76,33 @@ function App() {
       </div>
 
       <div className="keypad">
-        <button className="span-2 function" onClick={() => perform({ type: 'clear' })}>
+        <button className="function" onClick={send('clear')}>
           C
+        </button>
+        <button className="function" aria-label="backspace" onClick={send('backspace')}>
+          ⌫
         </button>
         <button
           className="function"
-          aria-label="backspace"
-          onClick={() => perform({ type: 'backspace' })}
+          aria-label="open parenthesis"
+          onClick={send('openParen')}
         >
-          ⌫
+          (
+        </button>
+        <button
+          className="function"
+          aria-label="close parenthesis"
+          onClick={send('closeParen')}
+        >
+          )
         </button>
         <button className="operator" onClick={operator('÷')}>
           ÷
         </button>
 
+        <button className="operator" aria-label="square root" onClick={send('sqrt')}>
+          √
+        </button>
         {['7', '8', '9'].map((d) => (
           <button key={d} onClick={digit(d)}>
             {d}
@@ -97,6 +112,9 @@ function App() {
           ×
         </button>
 
+        <button className="operator" aria-label="exponent" onClick={operator('^')}>
+          ^
+        </button>
         {['4', '5', '6'].map((d) => (
           <button key={d} onClick={digit(d)}>
             {d}
@@ -106,6 +124,9 @@ function App() {
           −
         </button>
 
+        <button className="operator" aria-label="percent" onClick={send('percent')}>
+          %
+        </button>
         {['1', '2', '3'].map((d) => (
           <button key={d} onClick={digit(d)}>
             {d}
@@ -115,13 +136,13 @@ function App() {
           +
         </button>
 
+        <button aria-label="decimal comma" onClick={send('comma')}>
+          ,
+        </button>
         <button className="span-2" onClick={digit('0')}>
           0
         </button>
-        <button aria-label="decimal comma" onClick={() => perform({ type: 'comma' })}>
-          ,
-        </button>
-        <button className="operator equals" onClick={() => perform({ type: 'equals' })}>
+        <button className="operator equals span-2" onClick={send('equals')}>
           =
         </button>
       </div>

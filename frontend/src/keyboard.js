@@ -6,14 +6,25 @@ const OPERATOR_KEYS = {
   '-': '−',
   '*': '×',
   '/': '÷',
+  '^': '^',
+}
+
+const SIMPLE_KEYS = {
+  ',': 'comma',
+  '.': 'comma',
+  '(': 'openParen',
+  ')': 'closeParen',
+  '%': 'percent',
+  '√': 'sqrt', // no ASCII key for this; the keypad button is the usual route
+  Backspace: 'backspace',
+  Escape: 'clear',
+  Delete: 'clear',
 }
 
 export function keyToAction(key) {
   if (/^[0-9]$/.test(key)) return { type: 'digit', value: key }
-  if (key === ',' || key === '.') return { type: 'comma' }
   if (key in OPERATOR_KEYS) return { type: 'operator', value: OPERATOR_KEYS[key] }
+  if (key in SIMPLE_KEYS) return { type: SIMPLE_KEYS[key] }
   if (key === 'Enter' || key === '=') return { type: 'equals' }
-  if (key === 'Backspace') return { type: 'backspace' }
-  if (key === 'Escape' || key === 'Delete') return { type: 'clear' }
   return null
 }

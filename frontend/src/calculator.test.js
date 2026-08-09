@@ -76,8 +76,12 @@ describe('operators', () => {
     expect(run([...digits('5,'), op('+')]).expression).toBe('5+')
   })
 
+  it('accepts the exponent operator', () => {
+    expect(run([...digits('2'), op('^'), ...digits('10')]).expression).toBe('2^10')
+  })
+
   it('rejects symbols that are not operators', () => {
-    for (const value of ['%', 'x', '^', '=', '', null]) {
+    for (const value of ['%', 'x', '=', '(', '√', '', null]) {
       expect(run([...digits('5'), op(value)]).expression, `value ${String(value)}`).toBe('5')
     }
   })
@@ -161,5 +165,103 @@ describe('displayValue', () => {
     expect(
       displayValue({ ...initialState, expression: '8÷0', error: 'division by zero' }),
     ).toBe('division by zero')
+  })
+})
+
+const paren = (side) => ({ type: side === '(' ? 'openParen' : 'closeParen' })
+const sqrt = { type: 'sqrt' }
+const percent = { type: 'percent' }
+
+describe('parentheses', () => {
+  it('opens a group anywhere a number could start', () => {
+    expect(run([paren('(')]).expression).toBe('(')
+    expect(run([...digits('2'), op('+'), paren('(')]).expression).toBe('2+(')
+    expect(run([paren('('), paren('(')]).expression).toBe('((')
+  })
+
+  it('closes only what is open', () => {
+    expect(run([paren(')')]).expression).toBe('')
+    expect(run([...digits('2'), paren(')')]).expression).toBe('2')
+    expect(run([paren('('), ...digits('2'), paren(')')]).expression).toBe('(2)')
+  })
+
+  it('refuses to close an empty or half-written group', () => {
+    expect(run([paren('('), paren(')')]).expression).toBe('(')
+    expect(run([paren('('), ...digits('2'), op('+'), paren(')')]).expression).toBe('(2+')
+  })
+
+  it('refuses to close more groups than are open', () => {
+    const state = run([paren('('), ...digits('2'), paren(')'), paren(')')])
+    expect(state.expression).toBe('(2)')
+  })
+
+  it('blocks a leading operator inside a group', () => {
+    expect(run([paren('('), op('+')]).expression).toBe('(')
+    expect(run([paren('('), op('×')]).expression).toBe('(')
+  })
+})
+
+describe('implicit multiplication', () => {
+  it('inserts × between a value and an opening group', () => {
+    expect(run([...digits('2'), paren('(')]).expression).toBe('2×(')
+    expect(run([paren('('), ...digits('2'), paren(')'), paren('(')]).expression).toBe('(2)×(')
+  })
+
+  it('inserts × between a value and a square root', () => {
+    expect(run([...digits('2'), sqrt]).expression).toBe('2×√')
+  })
+
+  it('inserts × between a closed group and a digit', () => {
+    const state = run([paren('('), ...digits('2'), paren(')'), ...digits('3')])
+    expect(state.expression).toBe('(2)×3')
+  })
+
+  it('inserts × after a percent', () => {
+    expect(run([...digits('50'), percent, ...digits('2')]).expression).toBe('50%×2')
+  })
+
+  it('does not insert × mid-number', () => {
+    expect(run(digits('123')).expression).toBe('123')
+  })
+})
+
+describe('square root', () => {
+  it('starts an expression', () => {
+    expect(run([sqrt, ...digits('9')]).expression).toBe('√9')
+  })
+
+  it('follows an operator directly', () => {
+    expect(run([...digits('2'), op('+'), sqrt, ...digits('9')]).expression).toBe('2+√9')
+  })
+
+  it('stacks', () => {
+    expect(run([sqrt, sqrt, ...digits('16')]).expression).toBe('√√16')
+  })
+
+  it('leaves nothing for an operator to work on', () => {
+    expect(run([sqrt, op('+')]).expression).toBe('√')
+  })
+})
+
+describe('percent', () => {
+  it('follows a number', () => {
+    expect(run([...digits('50'), percent]).expression).toBe('50%')
+  })
+
+  it('follows a closed group', () => {
+    const state = run([paren('('), ...digits('2'), paren(')'), percent])
+    expect(state.expression).toBe('(2)%')
+  })
+
+  it('needs something to apply to', () => {
+    expect(run([percent]).expression).toBe('')
+    expect(run([...digits('5'), op('+'), percent]).expression).toBe('5+')
+    expect(run([paren('('), percent]).expression).toBe('(')
+    expect(run([sqrt, percent]).expression).toBe('√')
+  })
+
+  it('continues from a result', () => {
+    const done = { expression: '2+2', result: 4, evaluated: '2+2', error: null }
+    expect(reduce(done, percent).expression).toBe('4%')
   })
 })

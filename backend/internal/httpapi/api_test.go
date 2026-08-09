@@ -47,6 +47,9 @@ func TestOperations(t *testing.T) {
 		{path: "/api/divide", body: `{"a":6,"b":3}`, want: 2},
 		{path: "/api/add", body: `{"a":0.5,"b":0.25}`, want: 0.75},
 		{path: "/api/multiply", body: `{"a":-4,"b":2.5}`, want: -10},
+		{path: "/api/power", body: `{"a":2,"b":10}`, want: 1024},
+		{path: "/api/power", body: `{"a":2,"b":-2}`, want: 0.25},
+		{path: "/api/power", body: `{"a":9,"b":0.5}`, want: 3},
 	}
 
 	for _, tt := range tests {
@@ -159,5 +162,68 @@ func TestCORS(t *testing.T) {
 	rec = do(t, http.MethodPost, "/api/add", `{"a":1,"b":2}`)
 	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "*" {
 		t.Errorf("Allow-Origin on a real request = %q, want %q", got, "*")
+	}
+}
+
+func TestSqrtEndpoint(t *testing.T) {
+	t.Run("computes the root", func(t *testing.T) {
+		rec := do(t, http.MethodPost, "/api/sqrt", `{"a":9}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d (%s), want %d", rec.Code, rec.Body.String(), http.StatusOK)
+		}
+		var body unaryResponse
+		decode(t, rec, &body)
+		if body.Result != 3 || body.Op != "sqrt" || body.A != 9 {
+			t.Errorf("body = %+v, want op=sqrt a=9 result=3", body)
+		}
+	})
+
+	t.Run("rejects a negative operand", func(t *testing.T) {
+		rec := do(t, http.MethodPost, "/api/sqrt", `{"a":-1}`)
+		if rec.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnprocessableEntity)
+		}
+		var body errorResponse
+		decode(t, rec, &body)
+		if body.Error != "square root of a negative number" {
+			t.Errorf("error = %q", body.Error)
+		}
+	})
+
+	t.Run("rejects bad input", func(t *testing.T) {
+		bad := []string{`hello`, ``, `{}`, `{"a":null}`, `{"a":"x"}`, `{"a":9,"b":2}`}
+		for _, body := range bad {
+			rec := do(t, http.MethodPost, "/api/sqrt", body)
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("body %q: status = %d, want %d", body, rec.Code, http.StatusBadRequest)
+			}
+		}
+	})
+
+	t.Run("rejects the wrong method", func(t *testing.T) {
+		rec := do(t, http.MethodGet, "/api/sqrt", "")
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
+		}
+	})
+}
+
+func TestPowerOverflow(t *testing.T) {
+	rec := do(t, http.MethodPost, "/api/power", `{"a":10,"b":400}`)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d (%s), want %d", rec.Code, rec.Body.String(), http.StatusUnprocessableEntity)
+	}
+	var body errorResponse
+	decode(t, rec, &body)
+	if body.Error != "result is not a finite number" {
+		t.Errorf("error = %q", body.Error)
+	}
+}
+
+func TestPowerNaN(t *testing.T) {
+	// (-8) ^ (1/3) is NaN in IEEE-754, which JSON cannot represent.
+	rec := do(t, http.MethodPost, "/api/power", `{"a":-8,"b":0.3333}`)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d (%s), want %d", rec.Code, rec.Body.String(), http.StatusUnprocessableEntity)
 	}
 }

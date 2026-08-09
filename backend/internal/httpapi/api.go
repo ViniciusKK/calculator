@@ -23,6 +23,16 @@ type calcResponse struct {
 	Result float64 `json:"result"`
 }
 
+type unaryRequest struct {
+	A *float64 `json:"a"`
+}
+
+type unaryResponse struct {
+	Op     string  `json:"op"`
+	A      float64 `json:"a"`
+	Result float64 `json:"result"`
+}
+
 type errorResponse struct {
 	Error string `json:"error"`
 }
@@ -36,6 +46,8 @@ func NewRouter() http.Handler {
 	mux.HandleFunc("POST /api/subtract", handleOp(calc.Subtract))
 	mux.HandleFunc("POST /api/multiply", handleOp(calc.Multiply))
 	mux.HandleFunc("POST /api/divide", handleOp(calc.Divide))
+	mux.HandleFunc("POST /api/power", handleOp(calc.Power))
+	mux.HandleFunc("POST /api/sqrt", handleSqrt)
 
 	return withCORS(mux)
 }
@@ -80,6 +92,36 @@ func handleOp(op calc.Op) http.HandlerFunc {
 			Result: result,
 		})
 	}
+}
+
+func handleSqrt(w http.ResponseWriter, r *http.Request) {
+	var req unaryRequest
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, `invalid JSON body: expected {"a": number}`)
+		return
+	}
+	if req.A == nil {
+		writeError(w, http.StatusBadRequest, `"a" is required`)
+		return
+	}
+
+	result, err := calc.Sqrt(*req.A)
+	if errors.Is(err, calc.ErrNegativeRoot) {
+		writeError(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, unaryResponse{
+		Op:     "sqrt",
+		A:      *req.A,
+		Result: result,
+	})
 }
 
 // withCORS lets the Vite dev server call the API from another origin.

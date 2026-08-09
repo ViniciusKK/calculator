@@ -2,7 +2,13 @@
 // side-effect free; the async "=" evaluation lives in App and feeds its outcome
 // back in as a `result` or `failed` action.
 
-import { currentSegment, format, isOperator, PRECEDENCE } from './expression'
+import {
+  currentSegment,
+  endsValue,
+  format,
+  isOperator,
+  openGroups,
+} from './expression'
 
 export const MAX_DIGITS = 15
 
@@ -18,6 +24,11 @@ const isDigit = (value) => typeof value === 'string' && /^[0-9]$/.test(value)
 // A finished result or an error is not editable — typing a value starts over.
 const startOver = (expression) => ({ ...initialState, expression })
 
+const withExpression = (state, expression) => ({ ...state, expression })
+
+// "2" then "(" means 2×(...); the × is inserted rather than swallowing the key.
+const glue = (expression) => (endsValue(expression.at(-1)) ? '×' : '')
+
 export function reduce(state, action) {
   switch (action?.type) {
     case 'digit': {
@@ -26,12 +37,15 @@ export function reduce(state, action) {
 
       const segment = currentSegment(state.expression)
       if (segment.replace(',', '').length >= MAX_DIGITS) return state
+      // A digit cannot follow ")" or "%" without an operator between them.
+      if (segment === '' && endsValue(state.expression.at(-1))) {
+        return withExpression(state, state.expression + '×' + action.value)
+      }
       // Don't build up leading zeros: "0" then "5" is 5, not 05.
-      const expression =
-        segment === '0'
-          ? state.expression.slice(0, -1) + action.value
-          : state.expression + action.value
-      return { ...state, expression }
+      if (segment === '0') {
+        return withExpression(state, state.expression.slice(0, -1) + action.value)
+      }
+      return withExpression(state, state.expression + action.value)
     }
 
     case 'comma': {
@@ -39,14 +53,14 @@ export function reduce(state, action) {
 
       const segment = currentSegment(state.expression)
       if (segment.includes(',')) return state
-      return {
-        ...state,
-        expression: state.expression + (segment === '' ? '0,' : ','),
+      if (segment === '') {
+        return withExpression(state, state.expression + glue(state.expression) + '0,')
       }
+      return withExpression(state, state.expression + ',')
     }
 
     case 'operator': {
-      if (!(action.value in PRECEDENCE)) return state
+      if (!isOperator(action.value)) return state
       if (state.error) return state
       // Keep going from the result: "6 =" then "+" continues as "6+".
       if (state.result !== null) {
@@ -55,17 +69,43 @@ export function reduce(state, action) {
       if (state.expression === '') return state // no leading operator
 
       const last = state.expression.at(-1)
+      if (last === '(' || last === '√') return state // nothing to operate on
       // Two operators in a row swap; a dangling comma is dropped.
-      const expression =
-        isOperator(last) || last === ','
-          ? state.expression.slice(0, -1) + action.value
-          : state.expression + action.value
-      return { ...state, expression }
+      if (isOperator(last) || last === ',') {
+        return withExpression(state, state.expression.slice(0, -1) + action.value)
+      }
+      return withExpression(state, state.expression + action.value)
+    }
+
+    case 'openParen': {
+      if (state.error || state.result !== null) return startOver('(')
+      return withExpression(state, state.expression + glue(state.expression) + '(')
+    }
+
+    case 'closeParen': {
+      if (state.error || state.result !== null) return state
+      if (openGroups(state.expression) <= 0) return state
+      // Refuse to close an empty or half-written group: "(", "(2+".
+      if (!endsValue(state.expression.at(-1))) return state
+      return withExpression(state, state.expression + ')')
+    }
+
+    case 'sqrt': {
+      if (state.error || state.result !== null) return startOver('√')
+      return withExpression(state, state.expression + glue(state.expression) + '√')
+    }
+
+    case 'percent': {
+      if (state.error) return state
+      if (state.result !== null) return startOver(format(state.result) + '%')
+      // Percent needs something to apply to.
+      if (!endsValue(state.expression.at(-1))) return state
+      return withExpression(state, state.expression + '%')
     }
 
     case 'backspace': {
       if (state.error || state.result !== null) return startOver('')
-      return { ...state, expression: state.expression.slice(0, -1) }
+      return withExpression(state, state.expression.slice(0, -1))
     }
 
     case 'clear':
