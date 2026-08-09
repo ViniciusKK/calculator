@@ -36,6 +36,7 @@ Requires Go 1.22+.
 cd backend
 go run ./cmd/server   # listens on :8080, override with PORT
 go test ./...
+go test -cover ./...
 ```
 
 Locally the server is API-only: `STATIC_DIR` is unset, so Vite serves the
@@ -73,9 +74,11 @@ Requires Node 20+.
 ```bash
 cd frontend
 npm install
-npm run dev        # http://localhost:5173
-npm test           # vitest
-npm run typecheck  # tsc --noEmit
+npm run dev            # http://localhost:5173
+npm test               # vitest
+npm run test:coverage  # vitest + v8 coverage, report in coverage/
+npm run test:contract  # boots the real Go server; needs a Go toolchain
+npm run typecheck      # tsc --noEmit
 npm run lint       # biome check (lint + format check)
 npm run lint:fix   # biome check --write
 npm run format     # biome format --write
@@ -114,7 +117,7 @@ becomes `2×(3+4)`, and `(2)3` becomes `(2)×3`.
 It keeps that meaning inside parentheses, so `2×(50+10%)` is 110.
 
 Every arithmetic step is a call to the Go API — the frontend only decides the
-order the steps run in (`src/expression.js`). Evaluating `1+2+3×4` makes three
+order the steps run in (`src/expression.ts`). Evaluating `1+2+3×4` makes three
 requests: `multiply(3,4)`, then `add(1,2)`, then `add(3,12)`.
 
 ### Keyboard
@@ -138,6 +141,12 @@ pressed with Ctrl/Cmd/Alt are left to the browser.
 is Option+V on macOS). Mapping a letter such as `r` to it was ruled out to keep
 the "no letter keys" rule absolute.
 
+While a calculation is in flight the keypad dims and a progress bar shows. Keys
+are ignored during that window with one exception: `C` and `Escape` always work,
+and they abandon the request — a reply that arrives afterwards is discarded
+rather than overwriting the cleared screen. API calls time out after 10s
+(`REQUEST_TIMEOUT_MS`), reported as "the server took too long to respond".
+
 ### Layout
 
 | File                | Holds                                                      |
@@ -150,6 +159,41 @@ the "no letter keys" rule absolute.
 
 The first three are side-effect free, so the input rules are unit tested
 directly; `App.test.tsx` covers the wiring with simulated typing.
+
+### Tests and coverage
+
+| Suite                       | Count | Runs with              |
+| --------------------------- | ----- | ---------------------- |
+| Frontend unit + component   | 127   | `npm test`             |
+| Frontend↔backend contract   | 15    | `npm run test:contract` |
+| Backend                     | 65    | `go test ./...`        |
+
+Measured on 2026-08-09:
+
+```
+frontend (npm run test:coverage)      stmts   branch   funcs   lines
+  App.tsx                             95.08    86.66     100     100
+  api.ts                                100      100     100     100
+  calculator.ts                       93.58    93.33     100     100
+  expression.ts                       97.29    94.91     100   96.87
+  keyboard.ts                           100      100     100     100
+  TOTAL                               96.04    92.92     100   98.62
+
+backend (go test -cover ./...)
+  internal/calc                       100.0%
+  internal/httpapi                     93.5%
+  cmd/server                            0.0%   (process wiring, no tests)
+  TOTAL (go tool cover -func)          83.2%
+```
+
+`main.tsx` is excluded from the frontend report — it is the mount point, covered
+by the browser rather than by unit tests. The backend total is dragged down by
+`cmd/server`, which is flag parsing and `ListenAndServe`.
+
+The contract suite is the only one that does not mock `./api`. Every other suite
+replaces it, so a renamed endpoint on either side would pass unnoticed — the
+mocks would keep answering to the old names. It boots the real Go binary and
+checks each name in `OPERATIONS` against it.
 
 The two types worth knowing: `Node` in `expression.ts` (the AST union, which
 makes the evaluator's switch exhaustive) and `Action` in `calculator.ts`.

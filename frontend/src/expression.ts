@@ -60,6 +60,14 @@ export type Token =
   | { type: 'sqrt' }
   | { type: 'percent' }
 
+// Digits and a decimal comma, plus the leading sign and exponent that `format`
+// emits for negative, very large, or very small results — those land straight
+// back in the expression when a result is continued with an operator.
+//
+// A leading "-" is unambiguous here: subtraction is U+2212 ("−"), not the ASCII
+// hyphen, so the only source of "-" is `format`.
+const NUMBER_LITERAL = /-?[0-9,]+(?:[eE][+-]?[0-9]+)?/y
+
 export function tokenize(expression: string): Token[] {
   const tokens: Token[] = []
   let i = 0
@@ -67,14 +75,15 @@ export function tokenize(expression: string): Token[] {
   while (i < expression.length) {
     const char = expression[i]
 
-    if (/[0-9,]/.test(char)) {
-      let text = ''
-      while (i < expression.length && /[0-9,]/.test(expression[i])) {
-        text += expression[i]
-        i++
+    if (/[0-9,-]/.test(char)) {
+      NUMBER_LITERAL.lastIndex = i
+      const match = NUMBER_LITERAL.exec(expression)
+      // A lone "-" or a truncated exponent falls through to the error below.
+      if (match) {
+        tokens.push({ type: 'number', text: match[0] })
+        i = NUMBER_LITERAL.lastIndex
+        continue
       }
-      tokens.push({ type: 'number', text })
-      continue
     }
 
     if (isOperator(char)) tokens.push({ type: 'operator', value: char })

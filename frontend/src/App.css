@@ -1,9 +1,45 @@
 .calculator {
+  position: relative;
+  overflow: hidden;
   width: min(400px, 100%);
   padding: 16px;
   border-radius: 20px;
   background: var(--panel);
   box-shadow: 0 20px 40px rgb(0 0 0 / 25%);
+}
+
+/* Indeterminate bar across the top of the panel while a request is in flight. */
+.spinner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 40%;
+  height: 3px;
+  background: var(--accent);
+  border-radius: 3px;
+  animation: sweep 900ms ease-in-out infinite;
+}
+
+@keyframes sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(350%);
+  }
+}
+
+/* Every key dims while busy except C, which stays live as the way out. */
+.calculator.busy .keypad button:not(.clear) {
+  opacity: 0.45;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+    width: 100%;
+    opacity: 0.6;
+  }
 }
 
 .screen {

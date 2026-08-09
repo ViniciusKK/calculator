@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useState } from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import type { Action, SimpleActionType } from './calculator'
 import { displayValue, initialState, reduce } from './calculator'
 import type { BinaryOp } from './expression'
@@ -9,26 +9,42 @@ import './App.css'
 function App() {
   const [state, dispatch] = useReducer(reduce, initialState)
   const [busy, setBusy] = useState(false)
+  // Bumped whenever an evaluation is superseded or cancelled, so a late reply
+  // from a request the user has already cleared cannot land on screen.
+  const evaluationId = useRef(0)
 
   const runEquals = useCallback(async () => {
     if (state.error || state.result !== null || state.expression === '') return
 
+    const id = ++evaluationId.current
+    const expression = state.expression
     setBusy(true)
     try {
-      const value = await evaluate(state.expression)
+      const value = await evaluate(expression)
+      if (evaluationId.current !== id) return
       if (!Number.isFinite(value)) throw new Error('result is not a finite number')
-      dispatch({ type: 'result', expression: state.expression, value })
+      dispatch({ type: 'result', expression, value })
     } catch (err) {
+      if (evaluationId.current !== id) return
       dispatch({ type: 'failed', message: (err as Error).message })
     } finally {
-      setBusy(false)
+      if (evaluationId.current === id) setBusy(false)
     }
   }, [state.error, state.result, state.expression])
 
   // Single entry point for both the keypad and the keyboard.
   const perform = useCallback(
     (action: Action | null) => {
-      if (busy || !action) return
+      if (!action) return
+      // C and Escape are the way out of a request that is hanging, so they run
+      // even while busy — and they abandon whatever is still in flight.
+      if (action.type === 'clear') {
+        evaluationId.current++
+        setBusy(false)
+        dispatch(action)
+        return
+      }
+      if (busy) return
       if (action.type === 'equals') {
         runEquals()
         return
@@ -58,7 +74,8 @@ function App() {
   const shown = displayValue(state)
 
   return (
-    <main className="calculator">
+    <main className={busy ? 'calculator busy' : 'calculator'} aria-busy={busy}>
+      {busy && <div className="spinner" role="progressbar" aria-label="calculating" />}
       <div className="screen" role="status" aria-live="polite">
         <div className="expression">
           {state.result !== null && !state.error ? `${state.evaluated} =` : ' '}
@@ -78,7 +95,7 @@ function App() {
       </div>
 
       <div className="keypad">
-        <button type="button" className="function" onClick={send('clear')}>
+        <button type="button" className="function clear" onClick={send('clear')}>
           C
         </button>
         <button

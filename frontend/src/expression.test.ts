@@ -8,6 +8,7 @@ import {
   openGroups,
   parse,
   tokenize,
+  toNumber,
 } from './expression'
 
 vi.mock('./api', () => ({ calculate: vi.fn(), calculateUnary: vi.fn() }))
@@ -236,5 +237,70 @@ describe('evaluate', () => {
   it('propagates API errors', async () => {
     await expect(evaluate('8÷0')).rejects.toThrow('division by zero')
     await expect(evaluate('√(0−4)')).rejects.toThrow('square root of a negative number')
+  })
+})
+
+describe('format round-trips back through tokenize', () => {
+  // Whatever `format` puts on screen can be typed back into an expression the
+  // moment the user presses an operator, so it has to survive tokenize/parse.
+  const values = [
+    0,
+    1,
+    -1,
+    -50,
+    0.5,
+    -0.25,
+    1234.5,
+    0.1 + 0.2,
+    1e20,
+    1e21,
+    -1e21,
+    1e308,
+    1e-6,
+    1e-7,
+    5e-7,
+    -1e-7,
+    2 ** 53,
+  ]
+
+  it('parses every formatted value back to what was displayed', () => {
+    for (const value of values) {
+      const text = format(value)
+      expect(() => tokenize(text), `tokenize(${text})`).not.toThrow()
+      // format trims float noise on purpose, so the round trip lands on the
+      // displayed value rather than the raw one.
+      expect(toNumber(text), `toNumber(${text}) from ${value}`).toBe(
+        Number(value.toPrecision(12)),
+      )
+    }
+  })
+
+  it('is stable: formatting a parsed value gives the same text back', () => {
+    for (const value of values) {
+      const text = format(value)
+      expect(format(toNumber(text)), `re-format of ${text}`).toBe(text)
+    }
+  })
+
+  it('keeps working when the result is continued with an operator', async () => {
+    for (const value of [-50, 1e21, 1e-7]) {
+      const expression = `${format(value)}×2`
+      await expect(evaluate(expression), expression).resolves.toBe(value * 2)
+    }
+  })
+
+  it('tokenizes a formatted negative as one signed number', () => {
+    expect(tokenize(format(-50))).toEqual([{ type: 'number', text: '-50' }])
+  })
+
+  it('tokenizes exponent notation as one number', () => {
+    expect(tokenize('1e+21')).toEqual([{ type: 'number', text: '1e+21' }])
+    expect(tokenize('1,5e-7')).toEqual([{ type: 'number', text: '1,5e-7' }])
+  })
+
+  it('still rejects a bare or incomplete sign and exponent', () => {
+    expect(() => tokenize('-')).toThrow('unexpected character "-"')
+    expect(() => tokenize('1e')).toThrow('unexpected character "e"')
+    expect(() => tokenize('1e+')).toThrow('unexpected character "e"')
   })
 })

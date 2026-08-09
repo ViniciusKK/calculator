@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
@@ -264,5 +264,119 @@ describe('exponentiation, roots, percent and parentheses', () => {
     expect(display()).toBe('0')
     await user.keyboard('1+2))))')
     expect(display()).toBe('1+2')
+  })
+})
+
+describe('while a calculation is in flight', () => {
+  // Holds the API call open so the busy window can be inspected.
+  const deferred = () => {
+    let release!: (value: number) => void
+    let fail!: (reason: Error) => void
+    const promise = new Promise<number>((resolve, reject) => {
+      release = resolve
+      fail = reject
+    })
+    return { promise, release, fail }
+  }
+
+  it('shows a busy indicator and clears it when the result lands', async () => {
+    const pending = deferred()
+    mockCalculate.mockReturnValue(pending.promise)
+
+    const user = setup()
+    await user.keyboard('1+2{Enter}')
+
+    expect(await screen.findByRole('progressbar')).toBeInTheDocument()
+    expect(screen.getByRole('main')).toHaveAttribute('aria-busy', 'true')
+
+    await act(async () => {
+      pending.release(3)
+    })
+
+    await waitFor(() => expect(display()).toBe('3'))
+    expect(screen.queryByRole('progressbar')).toBeNull()
+    expect(screen.getByRole('main')).toHaveAttribute('aria-busy', 'false')
+  })
+
+  it('ignores digits and operators', async () => {
+    const pending = deferred()
+    mockCalculate.mockReturnValue(pending.promise)
+
+    const user = setup()
+    await user.keyboard('1+2{Enter}')
+    await screen.findByRole('progressbar')
+
+    await user.keyboard('9+7')
+    expect(display()).toBe('1+2')
+
+    await act(async () => {
+      pending.release(3)
+    })
+    await waitFor(() => expect(display()).toBe('3'))
+  })
+
+  it('lets Escape through and drops the in-flight result', async () => {
+    const pending = deferred()
+    mockCalculate.mockReturnValue(pending.promise)
+
+    const user = setup()
+    await user.keyboard('1+2{Enter}')
+    await screen.findByRole('progressbar')
+
+    await user.keyboard('{Escape}')
+    expect(display()).toBe('0')
+    expect(screen.queryByRole('progressbar')).toBeNull()
+
+    // The abandoned request finishing must not resurrect the old result.
+    await act(async () => {
+      pending.release(3)
+    })
+    expect(display()).toBe('0')
+  })
+
+  it('lets the C key through and drops the in-flight result', async () => {
+    const pending = deferred()
+    mockCalculate.mockReturnValue(pending.promise)
+
+    const user = setup()
+    await user.keyboard('1+2{Enter}')
+    await screen.findByRole('progressbar')
+
+    await user.click(screen.getByRole('button', { name: 'C' }))
+    expect(display()).toBe('0')
+
+    await act(async () => {
+      pending.release(3)
+    })
+    expect(display()).toBe('0')
+  })
+
+  it('does not show a stale error from an abandoned request', async () => {
+    const pending = deferred()
+    mockCalculate.mockReturnValue(pending.promise)
+
+    const user = setup()
+    await user.keyboard('1+2{Enter}')
+    await screen.findByRole('progressbar')
+    await user.keyboard('{Escape}')
+
+    await act(async () => {
+      pending.fail(new Error('the server took too long to respond'))
+      await Promise.resolve()
+    })
+    expect(display()).toBe('0')
+  })
+
+  it('can start a fresh calculation after clearing a stuck one', async () => {
+    const stuck = deferred()
+    mockCalculate.mockReturnValueOnce(stuck.promise)
+
+    const user = setup()
+    await user.keyboard('1+2{Enter}')
+    await screen.findByRole('progressbar')
+    await user.keyboard('{Escape}')
+
+    await user.keyboard('4+5{Enter}')
+    await waitFor(() => expect(display()).toBe('9'))
   })
 })

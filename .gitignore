@@ -3,3 +3,7 @@
 # Go
 backend/bin/
 *.exe
+
+# Coverage output
+frontend/coverage/
+*.out
