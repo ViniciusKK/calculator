@@ -2,7 +2,7 @@
 
 Two-part project:
 
-- `frontend/` — React app scaffolded with Vite.
+- `frontend/` — React + TypeScript app scaffolded with Vite.
 - `backend/` — REST API written in Go (standard library only).
 
 ## Backend
@@ -46,10 +46,17 @@ Requires Node 20+.
 ```bash
 cd frontend
 npm install
-npm run dev    # http://localhost:5173
-npm test       # vitest
-npm run lint   # oxlint
+npm run dev        # http://localhost:5173
+npm test           # vitest
+npm run typecheck  # tsc --noEmit
+npm run lint       # biome check (lint + format check)
+npm run lint:fix   # biome check --write
+npm run format     # biome format --write
 ```
+
+`npm run build` typechecks before bundling, so a type error fails the build.
+`npm run lint` exits non-zero on a lint error *or* on formatting drift, so it
+is safe to gate CI on.
 
 The dev server proxies `/api/*` to `http://localhost:8080`, so run the backend
 alongside it and fetch from `/api/add` directly with no CORS setup needed.
@@ -106,13 +113,19 @@ the "no letter keys" rule absolute.
 
 ### Layout
 
-| File                | Holds                                                     |
-| ------------------- | --------------------------------------------------------- |
-| `src/calculator.js` | pure reducer: what each action does to the expression      |
-| `src/keyboard.js`   | `KeyboardEvent.key` → action, or `null` to ignore the key  |
-| `src/expression.js` | tokenizer, recursive-descent parser, and API call ordering |
-| `src/api.js`        | `fetch` wrapper for the Go endpoints                       |
-| `src/App.jsx`       | wiring: keypad, key listener, and the async `=`            |
+| File                | Holds                                                      |
+| ------------------- | ---------------------------------------------------------- |
+| `src/calculator.ts` | pure reducer: what each action does to the expression       |
+| `src/keyboard.ts`   | `KeyboardEvent.key` → action, or `null` to ignore the key   |
+| `src/expression.ts` | tokenizer, recursive-descent parser, and API call ordering  |
+| `src/api.ts`        | `fetch` wrapper for the Go endpoints                        |
+| `src/App.tsx`       | wiring: keypad, key listener, and the async `=`             |
 
 The first three are side-effect free, so the input rules are unit tested
-directly; `App.test.jsx` covers the wiring with simulated typing.
+directly; `App.test.tsx` covers the wiring with simulated typing.
+
+The two types worth knowing: `Node` in `expression.ts` (the AST union, which
+makes the evaluator's switch exhaustive) and `Action` in `calculator.ts`.
+`Action`'s `digit` and `operator` carry a plain `string`, not a narrow union —
+they come from raw keystrokes, so the reducer still validates them at runtime.
+The tests that feed it garbage cast through a `malformed()` helper to say so.

@@ -1,15 +1,21 @@
 import { describe, expect, it } from 'vitest'
+import type { Action, State } from './calculator'
 import { displayValue, initialState, MAX_DIGITS, reduce } from './calculator'
 
 // Applies a sequence of actions, starting from a clean state.
-const run = (actions, from = initialState) => actions.reduce(reduce, from)
+const run = (actions: Action[], from: State = initialState) =>
+  actions.reduce(reduce, from)
 
-const digits = (text) =>
+const digits = (text: string): Action[] =>
   [...text].map((value) =>
     value === ',' ? { type: 'comma' } : { type: 'digit', value },
   )
 
-const op = (value) => ({ type: 'operator', value })
+const op = (value: string): Action => ({ type: 'operator', value })
+
+// The reducer guards against malformed input at runtime because actions come
+// from raw keystrokes. Types cannot express that, so these tests opt out.
+const malformed = (action: unknown): Action => action as Action
 
 describe('digits', () => {
   it('builds up a number', () => {
@@ -22,7 +28,9 @@ describe('digits', () => {
   })
 
   it('keeps the zero when it is a decimal', () => {
-    expect(run([...digits('0'), { type: 'comma' }, ...digits('5')]).expression).toBe('0,5')
+    expect(run([...digits('0'), { type: 'comma' }, ...digits('5')]).expression).toBe(
+      '0,5',
+    )
   })
 
   it('stops accepting digits past the limit', () => {
@@ -36,8 +44,9 @@ describe('digits', () => {
   })
 
   it('rejects anything that is not a single digit', () => {
-    for (const value of ['a', 'Z', '12', '', ' ', '-1', '٣', null, undefined, 5]) {
-      const state = reduce(initialState, { type: 'digit', value })
+    const values: unknown[] = ['a', 'Z', '12', '', ' ', '-1', '٣', null, undefined, 5]
+    for (const value of values) {
+      const state = reduce(initialState, malformed({ type: 'digit', value }))
       expect(state.expression, `value ${String(value)}`).toBe('')
     }
   })
@@ -81,8 +90,10 @@ describe('operators', () => {
   })
 
   it('rejects symbols that are not operators', () => {
-    for (const value of ['%', 'x', '=', '(', '√', '', null]) {
-      expect(run([...digits('5'), op(value)]).expression, `value ${String(value)}`).toBe('5')
+    const values: unknown[] = ['%', 'x', '=', '(', '√', '', null]
+    for (const value of values) {
+      const state = run([...digits('5'), malformed({ type: 'operator', value })])
+      expect(state.expression, `value ${String(value)}`).toBe('5')
     }
   })
 
@@ -123,7 +134,12 @@ describe('results and errors', () => {
       expression: '1+1',
       value: 2,
     })
-    expect(state).toEqual({ expression: '1+1', result: 2, evaluated: '1+1', error: null })
+    expect(state).toEqual({
+      expression: '1+1',
+      result: 2,
+      evaluated: '1+1',
+      error: null,
+    })
   })
 
   it('starts a fresh expression when a digit follows a result', () => {
@@ -143,8 +159,8 @@ describe('results and errors', () => {
   })
 
   it('ignores unknown actions', () => {
-    expect(reduce(initialState, { type: 'nope' })).toBe(initialState)
-    expect(reduce(initialState, undefined)).toBe(initialState)
+    expect(reduce(initialState, malformed({ type: 'nope' }))).toBe(initialState)
+    expect(reduce(initialState, malformed(undefined))).toBe(initialState)
   })
 })
 
@@ -168,9 +184,11 @@ describe('displayValue', () => {
   })
 })
 
-const paren = (side) => ({ type: side === '(' ? 'openParen' : 'closeParen' })
-const sqrt = { type: 'sqrt' }
-const percent = { type: 'percent' }
+const paren = (side: '(' | ')'): Action => ({
+  type: side === '(' ? 'openParen' : 'closeParen',
+})
+const sqrt: Action = { type: 'sqrt' }
+const percent: Action = { type: 'percent' }
 
 describe('parentheses', () => {
   it('opens a group anywhere a number could start', () => {
@@ -187,7 +205,9 @@ describe('parentheses', () => {
 
   it('refuses to close an empty or half-written group', () => {
     expect(run([paren('('), paren(')')]).expression).toBe('(')
-    expect(run([paren('('), ...digits('2'), op('+'), paren(')')]).expression).toBe('(2+')
+    expect(run([paren('('), ...digits('2'), op('+'), paren(')')]).expression).toBe(
+      '(2+',
+    )
   })
 
   it('refuses to close more groups than are open', () => {
@@ -204,7 +224,9 @@ describe('parentheses', () => {
 describe('implicit multiplication', () => {
   it('inserts × between a value and an opening group', () => {
     expect(run([...digits('2'), paren('(')]).expression).toBe('2×(')
-    expect(run([paren('('), ...digits('2'), paren(')'), paren('(')]).expression).toBe('(2)×(')
+    expect(run([paren('('), ...digits('2'), paren(')'), paren('(')]).expression).toBe(
+      '(2)×(',
+    )
   })
 
   it('inserts × between a value and a square root', () => {

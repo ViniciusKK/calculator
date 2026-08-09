@@ -1,7 +1,10 @@
 // Maps a KeyboardEvent.key to a calculator action, or null if the key means
 // nothing to us. Anything not listed here — letters included — is ignored.
 
-const OPERATOR_KEYS = {
+import type { Action, SimpleActionType } from './calculator'
+import type { BinaryOp } from './expression'
+
+const OPERATOR_KEYS: Record<string, BinaryOp> = {
   '+': '+',
   '-': '−',
   '*': '×',
@@ -9,7 +12,7 @@ const OPERATOR_KEYS = {
   '^': '^',
 }
 
-const SIMPLE_KEYS = {
+const SIMPLE_KEYS: Record<string, SimpleActionType> = {
   ',': 'comma',
   '.': 'comma',
   '(': 'openParen',
@@ -21,7 +24,7 @@ const SIMPLE_KEYS = {
   Delete: 'clear',
 }
 
-export function keyToAction(key) {
+export function keyToAction(key: string): Action | null {
   if (/^[0-9]$/.test(key)) return { type: 'digit', value: key }
   if (key in OPERATOR_KEYS) return { type: 'operator', value: OPERATOR_KEYS[key] }
   if (key in SIMPLE_KEYS) return { type: SIMPLE_KEYS[key] }

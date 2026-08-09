@@ -6,7 +6,10 @@ import { calculate, calculateUnary } from './api'
 
 vi.mock('./api', () => ({ calculate: vi.fn(), calculateUnary: vi.fn() }))
 
-const backend = {
+const mockCalculate = vi.mocked(calculate)
+const mockCalculateUnary = vi.mocked(calculateUnary)
+
+const backend: Record<string, (a: number, b: number) => number> = {
   add: (a, b) => a + b,
   subtract: (a, b) => a - b,
   multiply: (a, b) => a * b,
@@ -17,15 +20,22 @@ const backend = {
   },
 }
 
-const display = () => document.querySelector('.screen .value').textContent
-const expressionLine = () =>
-  document.querySelector('.screen .expression').textContent.trim()
+// Reading the screen straight from the DOM, so the assertions match what the
+// user sees rather than component internals.
+const screenText = (selector: string): string => {
+  const node = document.querySelector(`.screen ${selector}`)
+  if (!node) throw new Error(`no .screen ${selector} on the page`)
+  return node.textContent ?? ''
+}
+
+const display = () => screenText('.value')
+const expressionLine = () => screenText('.expression').trim()
 
 beforeEach(() => {
-  calculate.mockReset()
-  calculateUnary.mockReset()
-  calculate.mockImplementation(async (op, a, b) => backend[op](a, b))
-  calculateUnary.mockImplementation(async (op, a) => {
+  mockCalculate.mockReset()
+  mockCalculateUnary.mockReset()
+  mockCalculate.mockImplementation(async (op, a, b) => backend[op](a, b))
+  mockCalculateUnary.mockImplementation(async (_op, a) => {
     if (a < 0) throw new Error('square root of a negative number')
     return Math.sqrt(a)
   })
@@ -94,7 +104,7 @@ describe('keyboard input', () => {
     const user = setup()
     await user.keyboard('7+{Enter}')
     await waitFor(() => expect(display()).toBe('incomplete expression'))
-    expect(calculate).not.toHaveBeenCalled()
+    expect(mockCalculate).not.toHaveBeenCalled()
   })
 })
 
@@ -159,10 +169,19 @@ describe('keypad', () => {
     // "minus" and "decimal comma" are the aria-labels for − and ,
     const labels = [
       ...'0123456789',
-      '+', '×', '÷', '=', 'C',
-      'backspace', 'decimal comma', 'minus',
-      'square root', 'exponent', 'percent',
-      'open parenthesis', 'close parenthesis',
+      '+',
+      '×',
+      '÷',
+      '=',
+      'C',
+      'backspace',
+      'decimal comma',
+      'minus',
+      'square root',
+      'exponent',
+      'percent',
+      'open parenthesis',
+      'close parenthesis',
     ]
     for (const name of labels) {
       expect(screen.getAllByRole('button', { name }).length).toBeGreaterThan(0)

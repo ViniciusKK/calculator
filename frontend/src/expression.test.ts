@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { calculate, calculateUnary } from './api'
+import type { BinaryNode, Node } from './expression'
 import {
   currentSegment,
   evaluate,
@@ -11,8 +12,11 @@ import {
 
 vi.mock('./api', () => ({ calculate: vi.fn(), calculateUnary: vi.fn() }))
 
+const mockCalculate = vi.mocked(calculate)
+const mockCalculateUnary = vi.mocked(calculateUnary)
+
 // Stand-in for the Go API, so these tests cover ordering rather than arithmetic.
-const backend = {
+const backend: Record<string, (a: number, b: number) => number> = {
   add: (a, b) => a + b,
   subtract: (a, b) => a - b,
   multiply: (a, b) => a * b,
@@ -24,10 +28,10 @@ const backend = {
 }
 
 beforeEach(() => {
-  calculate.mockReset()
-  calculateUnary.mockReset()
-  calculate.mockImplementation(async (op, a, b) => backend[op](a, b))
-  calculateUnary.mockImplementation(async (op, a) => {
+  mockCalculate.mockReset()
+  mockCalculateUnary.mockReset()
+  mockCalculate.mockImplementation(async (op, a, b) => backend[op](a, b))
+  mockCalculateUnary.mockImplementation(async (op, a) => {
     if (op !== 'sqrt') throw new Error(`unexpected unary op ${op}`)
     if (a < 0) throw new Error('square root of a negative number')
     return Math.sqrt(a)
@@ -61,7 +65,15 @@ describe('tokenize', () => {
 })
 
 describe('parse', () => {
-  const ast = (text) => parse(tokenize(text))
+  const ast = (text: string): Node => parse(tokenize(text))
+
+  // Narrows a Node to a binary one, failing loudly if the shape is wrong.
+  const asBinary = (node: Node): BinaryNode => {
+    if (node.type !== 'binary') {
+      throw new Error(`expected a binary node, got "${node.type}"`)
+    }
+    return node
+  }
 
   it('nests by precedence', () => {
     expect(ast('2+3×4')).toEqual({
@@ -78,14 +90,13 @@ describe('parse', () => {
   })
 
   it('treats ^ as right-associative', () => {
-    const tree = ast('2^3^2')
-    expect(tree.right.type).toBe('binary')
-    expect(tree.right.op).toBe('^')
+    const tree = asBinary(ast('2^3^2'))
+    expect(asBinary(tree.right).op).toBe('^')
     expect(tree.left).toEqual({ type: 'number', text: '2' })
   })
 
   it('lets parentheses override precedence', () => {
-    expect(ast('(2+3)×4').op).toBe('×')
+    expect(asBinary(ast('(2+3)×4')).op).toBe('×')
   })
 
   it('rejects malformed input', () => {
@@ -184,7 +195,7 @@ describe('evaluate', () => {
 
   it('delegates every step to the API, in precedence order', async () => {
     await evaluate('1+2+3×4')
-    expect(calculate.mock.calls).toEqual([
+    expect(mockCalculate.mock.calls).toEqual([
       ['add', 1, 2],
       ['multiply', 3, 4],
       ['add', 3, 12],
@@ -193,13 +204,13 @@ describe('evaluate', () => {
 
   it('calls the unary endpoint for square roots', async () => {
     await evaluate('√16')
-    expect(calculateUnary.mock.calls).toEqual([['sqrt', 16]])
-    expect(calculate).not.toHaveBeenCalled()
+    expect(mockCalculateUnary.mock.calls).toEqual([['sqrt', 16]])
+    expect(mockCalculate).not.toHaveBeenCalled()
   })
 
   it('builds a contextual percent out of divide and multiply', async () => {
     await evaluate('50+10%')
-    expect(calculate.mock.calls).toEqual([
+    expect(mockCalculate.mock.calls).toEqual([
       ['divide', 10, 100],
       ['multiply', 50, 0.1],
       ['add', 50, 5],
@@ -208,17 +219,17 @@ describe('evaluate', () => {
 
   it('returns a lone number without calling the API', async () => {
     await expect(evaluate('42')).resolves.toBe(42)
-    expect(calculate).not.toHaveBeenCalled()
-    expect(calculateUnary).not.toHaveBeenCalled()
+    expect(mockCalculate).not.toHaveBeenCalled()
+    expect(mockCalculateUnary).not.toHaveBeenCalled()
   })
 
   it('rejects malformed input before calling the API', async () => {
     for (const bad of ['7+', '(1+2', '1+2)', '()', '√', '']) {
-      calculate.mockClear()
-      calculateUnary.mockClear()
+      mockCalculate.mockClear()
+      mockCalculateUnary.mockClear()
       await expect(evaluate(bad), `expression ${bad}`).rejects.toThrow()
-      expect(calculate, `expression ${bad}`).not.toHaveBeenCalled()
-      expect(calculateUnary, `expression ${bad}`).not.toHaveBeenCalled()
+      expect(mockCalculate, `expression ${bad}`).not.toHaveBeenCalled()
+      expect(mockCalculateUnary, `expression ${bad}`).not.toHaveBeenCalled()
     }
   })
 

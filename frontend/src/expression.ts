@@ -3,8 +3,10 @@
 
 import { calculate, calculateUnary } from './api'
 
+export type BinaryOp = '+' | '−' | '×' | '÷' | '^'
+
 // Display symbol -> backend endpoint name.
-export const OPERATIONS = {
+export const OPERATIONS: Record<BinaryOp, string> = {
   '+': 'add',
   '−': 'subtract',
   '×': 'multiply',
@@ -13,7 +15,7 @@ export const OPERATIONS = {
 }
 
 // Higher binds tighter. Exponentiation is right-associative; the rest are left.
-export const PRECEDENCE = {
+export const PRECEDENCE: Record<BinaryOp, number> = {
   '+': 1,
   '−': 1,
   '×': 2,
@@ -21,36 +23,45 @@ export const PRECEDENCE = {
   '^': 3,
 }
 
-export const isOperator = (char) => char in PRECEDENCE
+export const isOperator = (char: string): char is BinaryOp => char in PRECEDENCE
 
 // Characters that can legally end an operand — a digit, a closing group, or a
 // percent sign. Used by the input rules to decide what may follow.
-export const endsValue = (char) => /[0-9)%]/.test(char ?? '')
+export const endsValue = (char: string | undefined): boolean =>
+  /[0-9)%]/.test(char ?? '')
 
 // The number currently being typed: the trailing run of digits and commas.
-export const currentSegment = (expression) => expression.match(/[0-9,]*$/)[0]
+export const currentSegment = (expression: string): string =>
+  expression.match(/[0-9,]*$/)?.[0] ?? ''
 
 // The UI uses a comma as the decimal separator; JS numbers use a dot.
-export const toNumber = (text) => Number(text.replace(',', '.'))
+export const toNumber = (text: string): number => Number(text.replace(',', '.'))
 
-export const format = (value) => {
+export const format = (value: number): string => {
   // Trim binary floating-point noise (0.1 + 0.2) before showing the number.
   const trimmed = Number(value.toPrecision(12))
   return String(trimmed).replace('.', ',')
 }
 
-export const openGroups = (expression) =>
+export const openGroups = (expression: string): number =>
   [...expression].reduce(
-    (depth, char) =>
-      char === '(' ? depth + 1 : char === ')' ? depth - 1 : depth,
+    (depth, char) => (char === '(' ? depth + 1 : char === ')' ? depth - 1 : depth),
     0,
   )
 
 // ---------------------------------------------------------------------------
 // Tokenizer
 
-export function tokenize(expression) {
-  const tokens = []
+export type Token =
+  | { type: 'number'; text: string }
+  | { type: 'operator'; value: BinaryOp }
+  | { type: 'open' }
+  | { type: 'close' }
+  | { type: 'sqrt' }
+  | { type: 'percent' }
+
+export function tokenize(expression: string): Token[] {
+  const tokens: Token[] = []
   let i = 0
 
   while (i < expression.length) {
@@ -89,35 +100,48 @@ export function tokenize(expression) {
 //   postfix    := primary '%'*
 //   primary    := number | '(' expression ')'
 
-export function parse(tokens) {
-  let pos = 0
-  const peek = () => tokens[pos]
+export type Node =
+  | { type: 'number'; text: string }
+  | { type: 'sqrt'; operand: Node }
+  | { type: 'percent'; operand: Node }
+  | { type: 'binary'; op: BinaryOp; left: Node; right: Node }
 
-  const parseExpression = () => parseBinary(1)
+export type BinaryNode = Extract<Node, { type: 'binary' }>
+
+export function parse(tokens: Token[]): Node {
+  let pos = 0
+  const peek = (): Token | undefined => tokens[pos]
+
+  const parseExpression = (): Node => parseBinary(1)
 
   // One function for both left-associative levels, driven by precedence.
-  function parseBinary(level) {
+  function parseBinary(level: number): Node {
     if (level > 2) return parsePower()
 
     let left = parseBinary(level + 1)
-    while (peek()?.type === 'operator' && PRECEDENCE[peek().value] === level) {
-      const op = tokens[pos++].value
+    for (;;) {
+      const token = peek()
+      if (token?.type !== 'operator' || PRECEDENCE[token.value] !== level) {
+        break
+      }
+      pos++
       const right = parseBinary(level + 1)
-      left = { type: 'binary', op, left, right }
+      left = { type: 'binary', op: token.value, left, right }
     }
     return left
   }
 
-  function parsePower() {
+  function parsePower(): Node {
     const base = parseUnary()
-    if (peek()?.type === 'operator' && peek().value === '^') {
+    const token = peek()
+    if (token?.type === 'operator' && token.value === '^') {
       pos++
       return { type: 'binary', op: '^', left: base, right: parsePower() }
     }
     return base
   }
 
-  function parseUnary() {
+  function parseUnary(): Node {
     if (peek()?.type === 'sqrt') {
       pos++
       return { type: 'sqrt', operand: parseUnary() }
@@ -125,7 +149,7 @@ export function parse(tokens) {
     return parsePostfix()
   }
 
-  function parsePostfix() {
+  function parsePostfix(): Node {
     let node = parsePrimary()
     while (peek()?.type === 'percent') {
       pos++
@@ -134,7 +158,7 @@ export function parse(tokens) {
     return node
   }
 
-  function parsePrimary() {
+  function parsePrimary(): Node {
     const token = peek()
     if (!token) throw new Error('incomplete expression')
 
@@ -156,8 +180,9 @@ export function parse(tokens) {
   }
 
   const ast = parseExpression()
-  if (pos < tokens.length) {
-    if (peek().type === 'close') throw new Error('unmatched closing parenthesis')
+  const trailing = peek()
+  if (trailing) {
+    if (trailing.type === 'close') throw new Error('unmatched closing parenthesis')
     throw new Error('incomplete expression')
   }
   return ast
@@ -166,7 +191,7 @@ export function parse(tokens) {
 // ---------------------------------------------------------------------------
 // Evaluation
 
-async function evaluateNode(node) {
+async function evaluateNode(node: Node): Promise<number> {
   switch (node.type) {
     case 'number':
       return toNumber(node.text)
@@ -183,15 +208,18 @@ async function evaluateNode(node) {
       return calculate(OPERATIONS[node.op], left, await rightOperand(node, left))
     }
 
-    default:
-      throw new Error('incomplete expression')
+    default: {
+      // The parser only produces the cases above; this keeps it that way.
+      const unreachable: never = node
+      throw new Error(`unexpected node ${JSON.stringify(unreachable)}`)
+    }
   }
 }
 
 // Percent is context-aware, the way a pocket calculator behaves:
 //   "50+10%" is 10% *of 50*, so it adds 5;
 //   "200×15%" is a plain fraction, so it multiplies by 0.15.
-async function rightOperand(node, left) {
+async function rightOperand(node: BinaryNode, left: number): Promise<number> {
   if (node.right.type !== 'percent') return evaluateNode(node.right)
 
   const base = await evaluateNode(node.right.operand)
@@ -203,6 +231,6 @@ async function rightOperand(node, left) {
   return fraction
 }
 
-export async function evaluate(expression) {
+export async function evaluate(expression: string): Promise<number> {
   return evaluateNode(parse(tokenize(expression)))
 }
