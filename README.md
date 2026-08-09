@@ -17,15 +17,16 @@ go test ./...
 
 ### Endpoints
 
-| Method | Path       | Body               | Response                              |
-| ------ | ---------- | ------------------ | ------------------------------------- |
-| GET    | `/health`  | —                  | `{"status":"ok"}`                     |
-| POST   | `/api/add` | `{"a": 2, "b": 3}` | `{"op":"add","a":2,"b":3,"result":5}` |
+| Method | Path            | Body               | Response                                    |
+| ------ | --------------- | ------------------ | ------------------------------------------- |
+| GET    | `/health`       | —                  | `{"status":"ok"}`                           |
+| POST   | `/api/add`      | `{"a": 2, "b": 3}` | `{"op":"add","a":2,"b":3,"result":5}`       |
+| POST   | `/api/subtract` | `{"a": 2, "b": 3}` | `{"op":"subtract","a":2,"b":3,"result":-1}` |
+| POST   | `/api/multiply` | `{"a": 2, "b": 3}` | `{"op":"multiply","a":2,"b":3,"result":6}`  |
+| POST   | `/api/divide`   | `{"a": 6, "b": 3}` | `{"op":"divide","a":6,"b":3,"result":2}`    |
 
-Subtract/multiply/divide aren't implemented yet.
-
-Errors come back as `{"error":"..."}` — `400` for a malformed body, `422` for a
-non-finite result.
+Errors come back as `{"error":"..."}` — `400` for a malformed body, `422` for
+division by zero or a non-finite result.
 
 ```bash
 curl -X POST localhost:8080/api/add -d '{"a":2,"b":3}'
@@ -43,3 +44,7 @@ npm run dev   # http://localhost:5173
 
 The dev server proxies `/api/*` to `http://localhost:8080`, so run the backend
 alongside it and fetch from `/api/add` directly with no CORS setup needed.
+
+The UI is a basic calculator: digits `0`–`9`, `+ − × ÷`, `,` as the decimal
+separator, `=`, and `C` to clear. Every result comes from the Go API — there is
+no arithmetic in the frontend.

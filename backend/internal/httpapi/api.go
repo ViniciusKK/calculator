@@ -3,6 +3,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"math"
 	"net/http"
@@ -31,7 +32,10 @@ func NewRouter() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /health", handleHealth)
-	mux.HandleFunc("POST /api/add", handleAdd)
+	mux.HandleFunc("POST /api/add", handleOp(calc.Add))
+	mux.HandleFunc("POST /api/subtract", handleOp(calc.Subtract))
+	mux.HandleFunc("POST /api/multiply", handleOp(calc.Multiply))
+	mux.HandleFunc("POST /api/divide", handleOp(calc.Divide))
 
 	return withCORS(mux)
 }
@@ -40,32 +44,42 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func handleAdd(w http.ResponseWriter, r *http.Request) {
-	var req calcRequest
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, `invalid JSON body: expected {"a": number, "b": number}`)
-		return
-	}
-	if req.A == nil || req.B == nil {
-		writeError(w, http.StatusBadRequest, `both "a" and "b" are required`)
-		return
-	}
+func handleOp(op calc.Op) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req calcRequest
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, `invalid JSON body: expected {"a": number, "b": number}`)
+			return
+		}
+		if req.A == nil || req.B == nil {
+			writeError(w, http.StatusBadRequest, `both "a" and "b" are required`)
+			return
+		}
 
-	result := calc.Add(*req.A, *req.B)
-	// JSON cannot represent Inf/NaN, so reject rather than emit invalid output.
-	if math.IsInf(result, 0) || math.IsNaN(result) {
-		writeError(w, http.StatusUnprocessableEntity, "result is not a finite number")
-		return
-	}
+		result, err := calc.Apply(op, *req.A, *req.B)
+		if errors.Is(err, calc.ErrDivideByZero) {
+			writeError(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		// JSON cannot represent Inf/NaN, so reject rather than emit invalid output.
+		if math.IsInf(result, 0) || math.IsNaN(result) {
+			writeError(w, http.StatusUnprocessableEntity, "result is not a finite number")
+			return
+		}
 
-	writeJSON(w, http.StatusOK, calcResponse{
-		Op:     "add",
-		A:      *req.A,
-		B:      *req.B,
-		Result: result,
-	})
+		writeJSON(w, http.StatusOK, calcResponse{
+			Op:     string(op),
+			A:      *req.A,
+			B:      *req.B,
+			Result: result,
+		})
+	}
 }
 
 // withCORS lets the Vite dev server call the API from another origin.
