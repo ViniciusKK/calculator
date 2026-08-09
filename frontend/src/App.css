@@ -28,6 +28,11 @@
   color: var(--text);
 }
 
+/* Long expressions shrink instead of overflowing the screen. */
+.screen .value.long {
+  font-size: 1.5rem;
+}
+
 .screen .value.error {
   font-size: 1.1rem;
   color: var(--danger);

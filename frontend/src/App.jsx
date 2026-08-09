@@ -1,144 +1,129 @@
 import { useState } from 'react'
-import { calculate } from './api'
+import {
+  currentSegment,
+  evaluate,
+  format,
+  isOperator,
+} from './expression'
 import './App.css'
-
-// Display symbol -> backend endpoint name.
-const OPERATIONS = {
-  '+': 'add',
-  '−': 'subtract',
-  '×': 'multiply',
-  '÷': 'divide',
-}
 
 const MAX_DIGITS = 15
 
-// The UI uses a comma as the decimal separator; JS numbers use a dot.
-const toNumber = (text) => Number(text.replace(',', '.'))
-
-const format = (value) => {
-  // Trim binary floating-point noise (0.1 + 0.2) before showing the number.
-  const trimmed = Number(value.toPrecision(12))
-  return String(trimmed).replace('.', ',')
-}
-
 function App() {
-  const [display, setDisplay] = useState('0')
-  const [pending, setPending] = useState(null) // { value: number, symbol: string }
-  const [overwrite, setOverwrite] = useState(true) // next digit starts a new number
+  const [expression, setExpression] = useState('')
+  const [result, setResult] = useState(null) // set once "=" has run
+  const [evaluated, setEvaluated] = useState('') // expression that produced result
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
 
   const clear = () => {
-    setDisplay('0')
-    setPending(null)
-    setOverwrite(true)
+    setExpression('')
+    setResult(null)
+    setEvaluated('')
     setError(null)
   }
 
-  // After an error the next entry starts from scratch rather than resuming.
-  const restartWith = (text) => {
+  // A finished result or an error is not editable — typing a value starts over.
+  const startOver = (text) => {
+    setExpression(text)
+    setResult(null)
+    setEvaluated('')
     setError(null)
-    setPending(null)
-    setDisplay(text)
-    setOverwrite(false)
   }
 
   const inputDigit = (digit) => {
     if (busy) return
-    if (error) return restartWith(digit)
+    if (error || result !== null) return startOver(digit)
 
-    if (overwrite) {
-      setDisplay(digit)
-      setOverwrite(false)
-      return
-    }
-    setDisplay((current) => {
-      if (current.replace(/[-,]/g, '').length >= MAX_DIGITS) return current
-      return current === '0' ? digit : current + digit
+    setExpression((current) => {
+      const segment = currentSegment(current)
+      if (segment.replace(',', '').length >= MAX_DIGITS) return current
+      // Don't build up leading zeros: "0" then "5" is 5, not 05.
+      if (segment === '0') return current.slice(0, -1) + digit
+      return current + digit
     })
   }
 
   const inputComma = () => {
     if (busy) return
-    if (error) return restartWith('0,')
+    if (error || result !== null) return startOver('0,')
 
-    if (overwrite) {
-      setDisplay('0,')
-      setOverwrite(false)
-      return
-    }
-    setDisplay((current) => (current.includes(',') ? current : current + ','))
+    setExpression((current) => {
+      const segment = currentSegment(current)
+      if (segment.includes(',')) return current
+      return segment === '' ? current + '0,' : current + ','
+    })
   }
 
-  // Runs the pending operation against what is currently on screen.
-  const resolvePending = async () => {
-    const result = await calculate(
-      OPERATIONS[pending.symbol],
-      pending.value,
-      toNumber(display),
-    )
-    setDisplay(format(result))
-    return result
+  const inputOperator = (symbol) => {
+    if (busy || error) return
+
+    // Keep going from the result: "6 =" then "+" continues as "6+".
+    if (result !== null) {
+      startOver(format(result) + symbol)
+      return
+    }
+
+    setExpression((current) => {
+      if (current === '') return current // no leading operator
+      const last = current.at(-1)
+      // Pressing two operators in a row swaps them; a dangling comma is dropped.
+      if (isOperator(last) || last === ',') return current.slice(0, -1) + symbol
+      return current + symbol
+    })
   }
 
-  const chooseOperation = async (symbol) => {
-    if (error || busy) return
-
-    // Pressing two operators in a row just swaps the pending one.
-    if (pending && overwrite) {
-      setPending({ ...pending, symbol })
-      return
-    }
-
-    if (!pending) {
-      setPending({ value: toNumber(display), symbol })
-      setOverwrite(true)
-      return
-    }
-
-    setBusy(true)
-    try {
-      const result = await resolvePending()
-      setPending({ value: result, symbol })
-      setOverwrite(true)
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setBusy(false)
-    }
+  const backspace = () => {
+    if (busy) return
+    if (error || result !== null) return startOver('')
+    setExpression((current) => current.slice(0, -1))
   }
 
   const equals = async () => {
-    if (error || busy || !pending) return
+    if (busy || error || result !== null || expression === '') return
 
     setBusy(true)
     try {
-      await resolvePending()
-      setPending(null)
-      setOverwrite(true)
+      const value = await evaluate(expression)
+      if (!Number.isFinite(value)) throw new Error('result is not a finite number')
+      setEvaluated(expression)
+      setResult(value)
     } catch (err) {
       setError(err.message)
     } finally {
       setBusy(false)
     }
   }
+
+  const shown = error ?? (result !== null ? format(result) : expression || '0')
 
   return (
     <main className="calculator">
       <div className="screen" role="status" aria-live="polite">
         <div className="expression">
-          {pending ? `${format(pending.value)} ${pending.symbol}` : ' '}
+          {result !== null && !error ? `${evaluated} =` : ' '}
         </div>
-        <div className={error ? 'value error' : 'value'}>
-          {error ?? display}
+        <div
+          className={[
+            'value',
+            error && 'error',
+            !error && shown.length > 11 && 'long',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+        >
+          {shown}
         </div>
       </div>
 
       <div className="keypad">
-        <button className="span-3 function" onClick={clear}>
+        <button className="span-2 function" onClick={clear}>
           C
         </button>
-        <button className="operator" onClick={() => chooseOperation('÷')}>
+        <button className="function" aria-label="backspace" onClick={backspace}>
+          ⌫
+        </button>
+        <button className="operator" onClick={() => inputOperator('÷')}>
           ÷
         </button>
 
@@ -147,7 +132,7 @@ function App() {
             {d}
           </button>
         ))}
-        <button className="operator" onClick={() => chooseOperation('×')}>
+        <button className="operator" onClick={() => inputOperator('×')}>
           ×
         </button>
 
@@ -159,7 +144,7 @@ function App() {
         <button
           className="operator"
           aria-label="minus"
-          onClick={() => chooseOperation('−')}
+          onClick={() => inputOperator('−')}
         >
           −
         </button>
@@ -169,7 +154,7 @@ function App() {
             {d}
           </button>
         ))}
-        <button className="operator" onClick={() => chooseOperation('+')}>
+        <button className="operator" onClick={() => inputOperator('+')}>
           +
         </button>
 

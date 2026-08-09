@@ -46,5 +46,12 @@ The dev server proxies `/api/*` to `http://localhost:8080`, so run the backend
 alongside it and fetch from `/api/add` directly with no CORS setup needed.
 
 The UI is a basic calculator: digits `0`–`9`, `+ − × ÷`, `,` as the decimal
-separator, `=`, and `C` to clear. Every result comes from the Go API — there is
-no arithmetic in the frontend.
+separator, `=`, `⌫` to delete one character, and `C` to clear.
+
+You type a whole expression before pressing `=`, so `1+2+3×4` is entered as one
+string and stays on screen while you build it. `×` and `÷` bind tighter than
+`+` and `−`, so that example is 15.
+
+Every arithmetic step is a call to the Go API — the frontend only decides the
+order the steps run in (`src/expression.js`). Evaluating `1+2+3×4` makes three
+requests: `multiply(3,4)`, then `add(1,2)`, then `add(3,12)`.
